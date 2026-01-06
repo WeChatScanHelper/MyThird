@@ -9,12 +9,12 @@ from telethon import TelegramClient, events, errors, functions, types
 from telethon.sessions import StringSession
 
 # ================= CONFIG =================
-API_ID = int(os.getenv("API_ID", 31267233))
-API_HASH = os.getenv("API_HASH", "063522fe89c128ed1a36d0b4cbe2653a")
+API_ID = int(os.getenv("API_ID", 32913903))
+API_HASH = os.getenv("API_HASH", "50c71d056370fdcd59f26626105350dd")
 SESSION_STRING = os.getenv("SESSION_STRING")
 
 GROUP_TARGET = -1003621946413
-MY_NAME = "lahhhh09"
+MY_NAME = "Pakak"
 BOT_USERNAME = "FkerKeyRPSBot"
 
 # ================= STATE =================
@@ -252,7 +252,7 @@ async def main_logic(client):
                         threshold = 100
                         if coins_today >= (last_gift_milestone + threshold):
                             milestones_passed = (coins_today - last_gift_milestone) // threshold
-                            gift_amount = milestones_passed * 25
+                            gift_amount = milestones_passed * 100
                             try:
                                 # Sends the gift via Private Message to the bot
                                 await client.send_message(BOT_USERNAME, f"/gift @Hey_Knee {gift_amount}")
@@ -344,7 +344,7 @@ async def stay_active_loop(client):
                 ))
                 add_log("💓 Activity: Reacted (Always On)")
             else:
-                fillers = ["lol", "damn", "nice", "gg", "wow"]
+                fillers = ["lol", "umay", "batak", "gg", "grind lang ng grind", "batak lang ng batak"]
                 async with client.action(GROUP_TARGET, 'typing'):
                     await asyncio.sleep(random.uniform(2, 5))
                     await client.send_message(GROUP_TARGET, random.choice(fillers))
