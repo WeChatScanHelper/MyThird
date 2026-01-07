@@ -244,7 +244,7 @@ async def main_logic(client):
             if MY_NAME.lower() in msg.lower().replace("@", ""):
                     
                 last_bot_reply = msg
-                await awaiting_bot_reply = False
+                awaiting_bot_reply = False
                 retry_used = False
                 STATE = "COOLDOWN"
                 no_reply_streak = 0
