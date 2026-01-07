@@ -17,6 +17,9 @@ GROUP_TARGET = -1003621946413
 MY_NAME = "Pakak"
 BOT_USERNAME = "FkerKeyRPSBot"
 # ================= STATE =================
+                                            earned = int(gain_match.group(1))
+
+# ================= STATE =================
 last_bot_reply = "System Online."
 bot_logs = ["Listener Active. Reading all chat..."]
 
@@ -350,9 +353,7 @@ async def main_logic(client):
 
 async def stay_active_loop(client):
     while True:
-        # REMOVED: if is_running: (This allows it to run even if stopped)
         try:
-            # Wait between 200 to 400 seconds between actions
             await asyncio.sleep(random.randint(200, 400))
             
             messages = await client.get_messages(GROUP_TARGET, limit=5)
@@ -376,14 +377,21 @@ async def stay_active_loop(client):
 
         except Exception as e:
             add_log(f"⚠️ Activity Error: {str(e)[:15]}")
-        
-        # REMOVED: else: await asyncio.sleep(10)
-        
 
 async def start_all():
     client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
     await client.start()
     add_log("🚀 Client Started")
+    
+    # --- FIX FOR "INVALID PEER" ERROR ---
+    try:
+        add_log("🔍 Resolving Group Entity...")
+        await client.get_entity(GROUP_TARGET)
+        add_log("✅ Group Entity Resolved")
+    except Exception as e:
+        add_log(f"⚠️ Resolve Error: {e}")
+    # ------------------------------------
+
     await asyncio.gather(main_logic(client), stay_active_loop(client))
 
 if __name__ == "__main__":
