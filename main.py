@@ -16,10 +16,7 @@ SESSION_STRING = os.getenv("SESSION_STRING")
 GROUP_TARGET = -1003621946413
 MY_NAME = "Pakak"
 BOT_USERNAME = "FkerKeyRPSBot"
-# ================= STATE =================
-                                            earned = int(gain_match.group(1))
 
-# ================= STATE =================
 last_bot_reply = "System Online."
 bot_logs = ["Listener Active. Reading all chat..."]
 
