@@ -34,13 +34,13 @@ last_gift_milestone = 0
 is_muted = False
 is_running = False
 next_run_time = None
+# New Break/Sleep States
+next_break_time = None 
+is_on_break = False
+break_type = "NONE" # "COFFEE" or "SLEEP"
+
 force_trigger = False
 current_day = datetime.now(timezone(timedelta(hours=8))).day
-
-# New Break States
-coffee_break_end = None
-sleep_mode_end = None
-scheduled_sleep_hour = random.randint(0, 3) # Randomly pick a start hour for sleep (12am-3am)
 
 STATE = "IDLE"
 grow_sent_at = None
@@ -60,6 +60,12 @@ def add_log(text):
     bot_logs.insert(0, f"[{ts}] {text.replace('@','')}")
     if len(bot_logs) > 100: bot_logs.pop()
 
+def schedule_next_break():
+    """Schedules the next random coffee break (45-90 mins from now)"""
+    global next_break_time
+    minutes_until = random.randint(45, 90)
+    next_break_time = get_ph_time() + timedelta(minutes=minutes_until)
+
 # ================= WEB UI =================
 app = Flask(__name__)
 
@@ -77,6 +83,7 @@ def index():
             body { font-family: sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 10px; display: flex; justify-content: center; }
             .card { width: 100%; max-width: 500px; background: var(--card); padding: 20px; border-radius: 24px; border: 1px solid #334155; }
             .timer { font-size: 3rem; font-weight: 900; text-align: center; margin: 5px 0; color: #fbbf24; }
+            .break-timer { text-align: center; font-size: 0.9rem; color: #38bdf8; margin-bottom: 15px; font-weight: bold; }
             .status-badge { font-size: 0.7rem; font-weight: 800; text-align: center; margin-bottom: 10px; text-transform: uppercase; }
             .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 15px 0; }
             .stat-box { background: rgba(0,0,0,0.2); padding: 10px; border-radius: 12px; border: 1px solid #334155; }
@@ -93,6 +100,7 @@ def index():
         <div class="card">
             <div id="status" class="status-badge">...</div>
             <div class="timer" id="timer">--</div>
+            <div class="break-timer" id="break-timer">Next Break: --</div>
             <div class="btn-group">
                 <button onclick="fetch('/start')" class="btn" style="background:#059669">▶ RESUME</button>
                 <button onclick="fetch('/stop')" class="btn" style="background:#dc2626">■ STOP</button>
@@ -121,6 +129,7 @@ def index():
                     const res = await fetch('/api/data');
                     const d = await res.json();
                     document.getElementById('timer').innerText = d.timer;
+                    document.getElementById('break-timer').innerText = d.break_timer;
                     document.getElementById('wt').innerText = d.wt;
                     document.getElementById('wy').innerText = d.wy;
                     document.getElementById('pt').innerText = (d.pt >= 0 ? '+' : '') + d.pt;
@@ -133,7 +142,7 @@ def index():
                     document.getElementById('debug').innerText = 
                         "State: " + d.debug.state + "\\n" +
                         "Gift Milestone: " + d.debug.milestone + "\\n" +
-                        "Break Status: " + d.debug.break_status + "\\n" +
+                        "Shadow-ban Warning: " + d.debug.shadow_ban_warning + "\\n" +
                         "No Reply Streak: " + d.debug.no_reply_streak;
                 } catch (e) {}
             }
@@ -147,19 +156,11 @@ def index():
 def get_data():
     ph_now = get_ph_time()
     t_str = "--"
+    b_str = "Next Break: --"
     s, c = "🟢 ACTIVE", "#34d399"
     
-    # Check Special States for UI
-    if sleep_mode_end and ph_now < sleep_mode_end:
-        s, c = "😴 SLEEPING", "#818cf8"
-        diff = int((sleep_mode_end - ph_now).total_seconds())
-        h, m = divmod(diff // 60, 60)
-        t_str = f"{h}h {m}m"
-    elif coffee_break_end and ph_now < coffee_break_end:
-        s, c = "☕ COFFEE BREAK", "#a8a29e"
-        diff = int((coffee_break_end - ph_now).total_seconds())
-        m, sec = divmod(diff, 60)
-        t_str = f"{m}m {sec}s"
+    if is_on_break:
+        s, c = f"☕ {break_type}", "#fbbf24"
     elif is_muted: 
         s, c, t_str = "⚠️ MUTED (1m RETRY)", "#fbbf24", "MUTE"
     elif not is_running: 
@@ -171,19 +172,24 @@ def get_data():
             t_str = f"{m}m {s_rem}s"
         else: t_str = "READY"
 
+    if next_break_time:
+        b_diff = int((next_break_time - ph_now).total_seconds())
+        if b_diff > 0:
+            bm, bs = divmod(b_diff, 60)
+            bh, bm = divmod(bm, 60)
+            b_str = f"Next Break in: {bh}h {bm}m {bs}s"
+        else:
+            b_str = "Break Imminent"
+
     return jsonify({
-        "timer": t_str, "gt": total_grows_today, "gy": total_grows_yesterday,
+        "timer": t_str, "break_timer": b_str, "gt": total_grows_today, "gy": total_grows_yesterday,
         "pt": coins_today, "py": coins_yesterday, "pl": coins_lifetime,
         "wt": waits_today, "wy": waits_yesterday,
         "reply": last_bot_reply.replace("@", ""), "status": s, "color": c, "logs": bot_logs,
-        "debug": {
-            "state": STATE, 
-            "milestone": last_gift_milestone, 
-            "break_status": "Coffee" if coffee_break_end and ph_now < coffee_break_end else "None",
-            "no_reply_streak": no_reply_streak
-        }
+        "debug": {"state": STATE, "milestone": last_gift_milestone, "shadow_ban_warning": shadow_ban_flag, "no_reply_streak": no_reply_streak}
     })
 
+# (Previous routes /start, /stop, /restart, /clear_logs remain the same)
 @app.route('/start')
 def start_bot(): 
     global is_running, force_trigger
@@ -201,12 +207,10 @@ def stop_bot():
 
 @app.route('/restart')
 def restart_bot(): 
-    global is_running, force_trigger, coffee_break_end, sleep_mode_end
+    global is_running, force_trigger
     is_running = True
     force_trigger = True
-    coffee_break_end = None # Clear breaks on force restart
-    sleep_mode_end = None
-    add_log("🔄 FORCE RESTART")
+    add_log("🔄 FORCE")
     return "OK"
 
 @app.route('/clear_logs')
@@ -223,12 +227,14 @@ async def main_logic(client):
     global last_bot_reply, total_grows_today, total_grows_yesterday, coins_today, coins_yesterday, coins_lifetime
     global waits_today, waits_yesterday, is_running, force_trigger, next_run_time, current_day
     global retry_used, grow_sent_at, STATE, awaiting_bot_reply, no_reply_streak, shadow_ban_flag, is_muted, last_gift_milestone
-    global coffee_break_end, sleep_mode_end, scheduled_sleep_hour
+    global next_break_time, is_on_break, break_type
+
+    schedule_next_break()
 
     @client.on(events.NewMessage(chats=GROUP_TARGET))
     async def handler(event):
         global last_bot_reply, coins_today, coins_lifetime, total_grows_today, waits_today
-        global next_run_time, awaiting_bot_reply, retry_used, grow_sent_at, STATE, no_reply_streak, last_gift_milestone, coffee_break_end
+        global next_run_time, awaiting_bot_reply, retry_used, grow_sent_at, STATE, no_reply_streak, last_gift_milestone
 
         try:
             await client.send_read_acknowledge(event.chat_id, max_id=event.id)
@@ -249,7 +255,6 @@ async def main_logic(client):
                 STATE = "COOLDOWN"
                 no_reply_streak = 0
 
-                # 1. Wait detection
                 if "please wait" in msg.lower():
                     waits_today += 1
                     wait_m = re.search(r'(\d+)m', msg)
@@ -261,26 +266,18 @@ async def main_logic(client):
                     add_log(f"🕒 Wait detected: {total_wait}s")
                     return
 
-                # 2. Coin update
                 now_match = re.search(r'Now:\s*([\d,]+)', msg)
                 if now_match: coins_lifetime = int(now_match.group(1).replace(',', ''))
                 
                 gain_match = re.search(r'Change:\s*([\+\-]?\d+)', msg)
                 if gain_match:
                     earned = int(gain_match.group(1))
-                    coins_today += earned
+                    coins_today += earned 
                     
                     if earned > 0:
                         total_grows_today += 1
                         add_log(f"📈 Gained {earned} coins")
                         
-                        # Random Coffee Break Trigger (5% chance after a success)
-                        if random.random() < 0.05:
-                            duration = random.randint(300, 900) # 5 to 15 mins
-                            coffee_break_end = get_ph_time() + timedelta(seconds=duration)
-                            add_log(f"☕ Taking a coffee break for {duration//60}m")
-
-                        # Gift Logic
                         threshold = 100
                         if coins_today >= (last_gift_milestone + threshold):
                             milestones_passed = (coins_today - last_gift_milestone) // threshold
@@ -288,7 +285,7 @@ async def main_logic(client):
                             try:
                                 await client.send_message(BOT_USERNAME, f"/gift @Hey_Knee {gift_amount}")
                                 last_gift_milestone += (milestones_passed * threshold)
-                                add_log(f"🎁 Sent {gift_amount} gift")
+                                add_log(f"🎁 Private Gift: Sent {gift_amount} to {BOT_USERNAME}")
                             except Exception as e:
                                 add_log(f"⚠️ Gift Error: {str(e)[:15]}")
 
@@ -299,38 +296,50 @@ async def main_logic(client):
                 add_log(f"✅ Success! Next in {MyAutoTimer}s.")
 
     # Main Loop
+    has_slept_today = False
+    
     while True:
         ph_now = get_ph_time()
-        
-        # New Day Reset
+
+        # Day Reset
         if ph_now.day != current_day:
             total_grows_yesterday, waits_yesterday, coins_yesterday = total_grows_today, waits_today, coins_today
             total_grows_today, waits_today, coins_today = 0, 0, 0
             last_gift_milestone = 0
             current_day = ph_now.day
-            scheduled_sleep_hour = random.randint(0, 3) # Re-schedule sleep for the next night
+            has_slept_today = False # Reset daily sleep flag
 
-        # 1. NIGHTLY SLEEP LOGIC (2 Hours)
-        if ph_now.hour == scheduled_sleep_hour and sleep_mode_end is None:
-            sleep_mode_end = ph_now + timedelta(hours=2)
-            add_log(f"😴 Nightly sleep started (2 hours)")
+        # 1. CHECK FOR SCHEDULED BREAKS
+        if is_running and not is_on_break:
+            # Random Sleep Trigger (Once a day, usually at night or random)
+            if not has_slept_today and random.random() < 0.001: # Small chance check every sec
+                is_on_break = True
+                break_type = "SLEEPING"
+                sleep_duration = 7200 # 2 hours
+                next_run_time = ph_now + timedelta(seconds=sleep_duration)
+                next_break_time = next_run_time # Sync timers
+                has_slept_today = True
+                add_log(f"💤 Entering 2-hour Sleep Mode...")
+            
+            # Regular Coffee Break Trigger
+            elif next_break_time and ph_now >= next_break_time:
+                is_on_break = True
+                break_type = "COFFEE BREAK"
+                break_duration = random.randint(300, 900) # 5-15 mins
+                next_run_time = ph_now + timedelta(seconds=break_duration)
+                add_log(f"☕ Taking a coffee break for {break_duration//60}m...")
 
-        if sleep_mode_end:
-            if ph_now < sleep_mode_end:
-                await asyncio.sleep(10)
-                continue
+        # 2. CHECK IF BREAK IS OVER
+        if is_on_break:
+            if ph_now >= next_run_time:
+                is_on_break = False
+                add_log(f"✨ {break_type} over. Resuming...")
+                schedule_next_break()
+                force_trigger = True
             else:
-                sleep_mode_end = None
-                add_log("🌅 Waking up from sleep")
-
-        # 2. COFFEE BREAK LOGIC
-        if coffee_break_end:
-            if ph_now < coffee_break_end:
-                await asyncio.sleep(5)
+                STATE = break_type
+                await asyncio.sleep(1)
                 continue
-            else:
-                coffee_break_end = None
-                add_log("☕ Coffee break over, back to work")
 
         if is_running:
             if next_run_time and ph_now < next_run_time and not force_trigger:
@@ -338,7 +347,6 @@ async def main_logic(client):
                 await asyncio.sleep(1)
                 continue
 
-            # Reply Handling / Timeout Logic
             if awaiting_bot_reply and grow_sent_at:
                 elapsed = (ph_now - grow_sent_at).total_seconds()
                 if elapsed > MAX_REPLY_WAIT and not retry_used:
@@ -358,7 +366,6 @@ async def main_logic(client):
                 add_log(f"🛡️ Safety cooldown: {extra_delay}s")
                 no_reply_streak = 0
 
-            # Execute /grow
             try:
                 STATE = "SENDING"
                 async with client.action(GROUP_TARGET, 'typing'):
@@ -384,13 +391,9 @@ async def main_logic(client):
 async def stay_active_loop(client):
     while True:
         try:
-            # Respect Sleep/Coffee even for filler chat
-            ph_now = get_ph_time()
-            if (sleep_mode_end and ph_now < sleep_mode_end) or (coffee_break_end and ph_now < coffee_break_end):
-                await asyncio.sleep(30)
-                continue
-
             await asyncio.sleep(random.randint(200, 400))
+            if is_on_break: continue # Don't act while sleeping/break
+            
             messages = await client.get_messages(GROUP_TARGET, limit=5)
             if not messages: continue
 
@@ -401,13 +404,13 @@ async def stay_active_loop(client):
                     msg_id=target_msg.id,
                     reaction=[types.ReactionEmoji(emoticon=random.choice(['👍', '🔥', '❤️', '🤩']))]
                 ))
-                add_log("💓 Activity: Reacted")
+                add_log("💓 Activity: Reacted (Always On)")
             else:
                 fillers = ["lol", "damn", "nice", "gg", "wow"]
                 async with client.action(GROUP_TARGET, 'typing'):
                     await asyncio.sleep(random.uniform(2, 5))
                     await client.send_message(GROUP_TARGET, random.choice(fillers))
-                add_log("💓 Activity: Sent filler")
+                add_log("💓 Activity: Sent filler chat (Always On)")
 
         except Exception as e:
             add_log(f"⚠️ Activity Error: {str(e)[:15]}")
