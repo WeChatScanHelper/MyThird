@@ -50,7 +50,7 @@ commands_until_coffee = random.randint(15, 30)
 is_on_coffee_break = False
 total_grows_this_session = 0
 # Set this to how many grows before a LONG 2-hour sleep (e.g., after 100 grows)
-GROWS_BEFORE_LONG_SLEEP = 80 
+GROWS_BEFORE_LONG_SLEEP = 720 
 
 # ================= UTILS =================
 def get_ph_time():
