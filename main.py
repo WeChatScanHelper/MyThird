@@ -16,7 +16,6 @@ SESSION_STRING = os.getenv("SESSION_STRING")
 GROUP_TARGET = -1003621946413
 MY_NAME = "ArayMoPakak1234"
 BOT_USERNAME = "FkerKeyRPSBot"
-
 # ================= STATE =================
 last_bot_reply = "System Online."
 bot_logs = ["Listener Active. Reading all chat..."]
@@ -28,7 +27,6 @@ waits_yesterday = 0
 coins_today = 0
 coins_yesterday = 0
 coins_lifetime = 0
-MyAutoTimer = 30
 last_gift_milestone = 0 
 
 is_muted = False
@@ -37,6 +35,7 @@ next_run_time = None
 # New Break/Sleep States
 next_break_time = None 
 is_on_break = False
+is_on_sleep = False
 break_type = "NONE" # "COFFEE" or "SLEEP"
 
 force_trigger = False
@@ -46,7 +45,7 @@ STATE = "IDLE"
 grow_sent_at = None
 retry_used = False
 MAX_REPLY_WAIT = 25
-learned_cooldown = MyAutoTimer
+learned_cooldown = 30
 no_reply_streak = 0
 shadow_ban_flag = False
 awaiting_bot_reply = False
@@ -63,9 +62,13 @@ def add_log(text):
 def schedule_next_break():
     """Schedules the next random coffee break (45-90 mins from now)"""
     global next_break_time
-    minutes_until = random.randint(45, 90)
-    next_break_time = get_ph_time() + timedelta(minutes=minutes_until)
-
+    
+    if not is_on_sleep:
+        minutes_until = random.randint(45, 90)
+        next_break_time = get_ph_time() + timedelta(minutes=minutes_until)
+    else:
+        # 'continue' is only for loops. In a function, use 'pass' or just do nothing.
+        pass
 # ================= WEB UI =================
 app = Flask(__name__)
 
@@ -159,8 +162,22 @@ def get_data():
     b_str = "Next Break: --"
     s, c = "🟢 ACTIVE", "#34d399"
     
-    if is_on_break:
-        s, c = f"☕ {break_type}", "#fbbf24"
+    if is_on_break:      
+      a_diff = int((next_run_time - ph_now).total_seconds())
+      if a_diff > 0:
+    # Convert seconds into hours, minutes, and seconds
+       am, asec = divmod(a_diff, 60)
+       ah, am = divmod(am, 60)
+       t_str = f"{ah}h {am}m {asec}s"
+       s, c = f"☕ {break_type}", "#fbbf24"
+    elif is_on_sleep:  
+      a_diff = int((next_run_time - ph_now).total_seconds())
+      if a_diff > 0:
+    # Convert seconds into hours, minutes, and seconds
+       am, asec = divmod(a_diff, 60)
+       ah, am = divmod(am, 60)
+       t_str = f"{ah}h {am}m {asec}s"
+       s, c = f"💤 {break_type}", "#fbbf24"
     elif is_muted: 
         s, c, t_str = "⚠️ MUTED (1m RETRY)", "#fbbf24", "MUTE"
     elif not is_running: 
@@ -172,7 +189,7 @@ def get_data():
             t_str = f"{m}m {s_rem}s"
         else: t_str = "READY"
 
-    if next_break_time:
+    if next_break_time and not is_on_sleep and not is_on_break:
         b_diff = int((next_break_time - ph_now).total_seconds())
         if b_diff > 0:
             bm, bs = divmod(b_diff, 60)
@@ -227,8 +244,8 @@ async def main_logic(client):
     global last_bot_reply, total_grows_today, total_grows_yesterday, coins_today, coins_yesterday, coins_lifetime
     global waits_today, waits_yesterday, is_running, force_trigger, next_run_time, current_day
     global retry_used, grow_sent_at, STATE, awaiting_bot_reply, no_reply_streak, shadow_ban_flag, is_muted, last_gift_milestone
-    global next_break_time, is_on_break, break_type
-
+    global next_break_time, is_on_break, break_type, is_on_sleep
+    MyAutoTimer = random.randint(30, 45)
     schedule_next_break()
 
     @client.on(events.NewMessage(chats=GROUP_TARGET))
@@ -247,7 +264,7 @@ async def main_logic(client):
         
         if sender and sender.username and sender.username.lower() == bot_target:
             msg = event.text or ""
-            if MY_NAME.lower() in msg.lower().replace("@", ""):
+            if MY_NAME.lower() in msg.lower().replace("@", "") and not is_on_sleep and not is_on_break:
                     
                 last_bot_reply = msg
                 awaiting_bot_reply = False
@@ -272,7 +289,7 @@ async def main_logic(client):
                 gain_match = re.search(r'Change:\s*([\+\-]?\d+)', msg)
                 if gain_match:
                     earned = int(gain_match.group(1))
-                    coins_today += earned 
+                    coins_today = max(0, coins_today + earned)
                     
                     if earned > 0:
                         total_grows_today += 1
@@ -281,7 +298,7 @@ async def main_logic(client):
                         threshold = 100
                         if coins_today >= (last_gift_milestone + threshold):
                             milestones_passed = (coins_today - last_gift_milestone) // threshold
-                            gift_amount = milestones_passed * 25
+                            gift_amount = milestones_passed * 100
                             try:
                                 await client.send_message(BOT_USERNAME, f"/gift @Hey_Knee {gift_amount}")
                                 last_gift_milestone += (milestones_passed * threshold)
@@ -291,7 +308,7 @@ async def main_logic(client):
 
                     elif earned < 0:
                         add_log(f"📉 Lost {abs(earned)} coins")
-
+                        
                 next_run_time = get_ph_time() + timedelta(seconds=MyAutoTimer)
                 add_log(f"✅ Success! Next in {MyAutoTimer}s.")
 
@@ -308,26 +325,53 @@ async def main_logic(client):
             last_gift_milestone = 0
             current_day = ph_now.day
             has_slept_today = False # Reset daily sleep flag
-
-        # 1. CHECK FOR SCHEDULED BREAKS
-        if is_running and not is_on_break:
-            # Random Sleep Trigger (Once a day, usually at night or random)
-            if not has_slept_today and random.random() < 0.001: # Small chance check every sec
-                is_on_break = True
+            
+        if is_running and not is_on_sleep:
+            if 3 <= ph_now.hour < 4:
+              if break_type != "SLEEPING":
+                
+              #  is_on_break = True
+                is_on_sleep = True
                 break_type = "SLEEPING"
-                sleep_duration = 7200 # 2 hours
+                
+                target_end = ph_now.replace(hour=4, minute=0, second=0, microsecond=0)  
+                sleep_duration = int((target_end - ph_now).total_seconds())# 2 hours
+                
                 next_run_time = ph_now + timedelta(seconds=sleep_duration)
                 next_break_time = next_run_time # Sync timers
                 has_slept_today = True
                 add_log(f"💤 Entering 2-hour Sleep Mode...")
+        
+        
+        if is_on_sleep:
+            if ph_now >= next_run_time:
+                is_on_sleep = False
+                add_log(f"✨ {break_type} over. Resuming...")
+             #   schedule_next_break()
+                force_trigger = True
+            else:
+                STATE = break_type
+                await asyncio.sleep(1)
+                continue
+                
+        # 1. CHECK FOR SCHEDULED BREAKS
+        if is_running and not is_on_break and not is_on_sleep:
+            # Random Sleep Trigger (Once a day, usually at night or random)
+           # if not has_slept_today and random.random() < 0.001: # Small chance check every sec
+        
             
             # Regular Coffee Break Trigger
-            elif next_break_time and ph_now >= next_break_time:
+            if next_break_time and ph_now >= next_break_time:
+              if not (3 <= ph_now.hour < 4):
                 is_on_break = True
                 break_type = "COFFEE BREAK"
                 break_duration = random.randint(300, 900) # 5-15 mins
                 next_run_time = ph_now + timedelta(seconds=break_duration)
                 add_log(f"☕ Taking a coffee break for {break_duration//60}m...")
+              else:
+                next_break_time =  ph_now + timedelta(hours=1)
+               # minutes_until = random.randint(45, 90)
+               # next_break_time = get_ph_time() + timedelta(minutes=minutes_until)
 
         # 2. CHECK IF BREAK IS OVER
         if is_on_break:
@@ -375,6 +419,7 @@ async def main_logic(client):
                     awaiting_bot_reply = True
                     grow_sent_at = get_ph_time()
                     force_trigger = False
+                #    MyAutoTimer2 = random.randint(45, 30)
                     next_run_time = ph_now + timedelta(seconds=MyAutoTimer) 
                     STATE = "WAIT_REPLY"
                     if is_muted: is_muted = False
@@ -392,7 +437,7 @@ async def stay_active_loop(client):
     while True:
         try:
             await asyncio.sleep(random.randint(200, 400))
-            if is_on_break: continue # Don't act while sleeping/break
+         #   if is_on_break: continue # Don't act while sleeping/break
             
             messages = await client.get_messages(GROUP_TARGET, limit=5)
             if not messages: continue
